@@ -78,7 +78,7 @@ def train(sess, env, env_eval, actor, critic, actor_eval, critic_eval, saver):
         if i % 100 == 0:
             print('long eval')
             test_actor(env_eval, actor_eval, critic_eval, rho_list, rho_tar_list,
-                       eval_len=1000, name="final", plot=True, verbose=True)
+                       eval_len=100, name="final", plot=True, verbose=True)
 
     return rho_list, rho_tar_list
 

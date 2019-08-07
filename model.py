@@ -76,14 +76,14 @@ class ActorNetwork(object):
         #         tf.multiply(self.target_network_params[i], tf.div(self._global_step, tf.add(self._global_step, 1.))) +
         #         tf.div(self.network_params[i], tf.add(self._global_step, 1.)))
         #     for i in range(len(self.target_network_params))]
-        self.update_target_network_params = \
-            [self.target_network_params[i].assign(self.network_params[i])
-            for i in range(len(self.target_network_params))]
         # self.update_target_network_params = \
-        #     [self.target_network_params[i].assign(
-        #         tf.multiply(self.target_network_params[i], 1 - self.tau) +
-        #         tf.multiply(self.network_params[i], self.tau))
+        #     [self.target_network_params[i].assign(self.network_params[i])
         #     for i in range(len(self.target_network_params))]
+        self.update_target_network_params = \
+            [self.target_network_params[i].assign(
+                tf.multiply(self.target_network_params[i], 1 - self.tau) +
+                tf.multiply(self.network_params[i], self.tau))
+            for i in range(len(self.target_network_params))]
 
     def _create_network(self,name):
         bias_init = tflearn.initializations.uniform(shape=None, minval=0.1, maxval=0.2,dtype=tf.float32)
@@ -253,14 +253,14 @@ class CriticNetwork(object):
         #         tf.multiply(self.target_network_params[i], tf.div(self._global_step, tf.add(self._global_step, 1.))) +
         #         tf.div(self.network_params[i], tf.add(self._global_step, 1.)))
         #     for i in range(len(self.target_network_params))]
-        self.update_target_network_params = \
-            [self.target_network_params[i].assign(self.network_params[i])
-            for i in range(len(self.target_network_params))]
         # self.update_target_network_params = \
-        #     [self.target_network_params[i].assign(
-        #         tf.multiply(self.target_network_params[i], 1 - self.tau) +
-        #         tf.multiply(self.network_params[i], self.tau))
+        #     [self.target_network_params[i].assign(self.network_params[i])
         #     for i in range(len(self.target_network_params))]
+        self.update_target_network_params = \
+            [self.target_network_params[i].assign(
+                tf.multiply(self.target_network_params[i], 1 - self.tau) +
+                tf.multiply(self.network_params[i], self.tau))
+            for i in range(len(self.target_network_params))]
 
     def _create_network(self,name):
         bias_init = tflearn.initializations.uniform(shape=None, minval=0.0, maxval=0.1,dtype=tf.float32)
