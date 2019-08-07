@@ -7,7 +7,7 @@ import os
 import logging
 import time
 import shutil
-from configs import Config
+from configs import Config, ConfigLatest
 
 MAP_DICT = {"eval_tr":          "eval_transient",
             "eval_len":         "eval_episode_len",
@@ -31,7 +31,7 @@ def read_flags(config, args):
 
 
 def get_simulation_name(args):
-    waiver = ['seed', 'debug', 'verbose']
+    waiver = ['seed', 'debug', 'verbose', 'model_path']
     name = []
     for arg in sorted(vars(args)):
         key = arg
@@ -51,6 +51,8 @@ def create_exp_dir(path, scripts_to_save=None):
         os.makedirs(path)
         os.makedirs(os.path.join(path,'summaries'))
         os.makedirs(os.path.join(path,'plots'))
+        os.makedirs(os.path.join(path,'model'))
+        os.makedirs(os.path.join(path,'states'))
 
     if scripts_to_save is not None:
         os.makedirs(os.path.join(path,'scripts'))
@@ -60,7 +62,13 @@ def create_exp_dir(path, scripts_to_save=None):
 
 
 def define_configs(args):
-    config = Config()
+    if args.config == "base":
+        config = Config()
+    elif args.config == "latest":
+        config = ConfigLatest()
+    else:
+        raise ValueError("Invalid choice of configuration")
+
     config = read_flags(config, args)
 
     seed_tmp = time.time()
@@ -76,8 +84,7 @@ def define_configs(args):
                                                'model.py',
                                                'optimizers.py',
                                                'utils.py',
-                                               'replay_buffer.py',
-                                               'visualize.py'])
+                                               'replay_buffer.py'])
 
     sess_config = tf.ConfigProto()
 
@@ -106,6 +113,40 @@ def define_logger(args, directory):
         logger.addHandler(consoleHandler)
 
     return logger
+
+
+def save_models(saver, sess, path):
+    tf_path = os.path.join(path, "model", "tf_model")
+    # actor_path = os.path.join(path,"actor.obj")
+    # critic_path = os.path.join(path,"critic.obj")
+
+    logger.debug("saving actor critic tf graph and variables .... ")
+    saver.save(sess, tf_path)
+
+    # logger.info("saving actor critic objects.... ")
+    # with open(actor_path, 'w') as f:
+    #     pickle.dump(actor, f)
+    # with open(critic_path, 'w') as f:
+    #     pickle.dump(critic, f)
+
+
+def load_models(sess, path):
+    tf_path = path
+    # actor_path = os.path.join(path,"actor.obj")
+    # critic_path = os.path.join(path,"critic.obj")
+
+    logger.info("loading actor critic tf graph and variables .... ")
+    # saver = tf.train.import_meta_graph('{}.meta'.format(tf_path))
+    saver = tf.train.Saver()
+    saver.restore(sess, tf_path)
+
+    # logger.info("saving actor critic objects.... ")
+    # with open(actor_path, 'r') as f:
+    #     actor = pickle.load(f)
+    # with open(critic_path, 'r') as f:
+    #     critic = pickle.load(f)
+    #
+    # return actor, critic
 
 
 def preprocess(args):

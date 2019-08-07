@@ -17,8 +17,8 @@ class ReplayBuffer(object):
         self.buffer = deque()
         random.seed(random_seed)
 
-    def add(self, s, a, r, s2):
-        experience = (s, a, r, s2)
+    def add(self, s, a, r, s2, p_y):
+        experience = (s, a, r, s2, p_y)
         if self.count < self.buffer_size:
             self.buffer.append(experience)
             self.count += 1
@@ -40,10 +40,18 @@ class ReplayBuffer(object):
         a_batch = np.array([_[1] for _ in batch])
         r_batch = np.array([_[2] for _ in batch])
         s2_batch = np.array([_[3] for _ in batch])
+        p_y_batch = np.array([_[4] for _ in batch])
 
-        return s_batch, a_batch, r_batch, s2_batch
+        return s_batch, a_batch, r_batch, s2_batch, p_y_batch
 
     def clear(self):
         self.buffer.clear()
         self.count = 0
 
+    def clear_half_history(self):
+        frac = np.random.randint(2,5)
+        elements2remove = self.count // frac if self.count < self.buffer_size else self.buffer_size // frac
+
+        for k in range(elements2remove):
+            self.buffer.popleft()
+            self.count -= 1

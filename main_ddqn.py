@@ -12,7 +12,7 @@ import scipy.io as mat4py
 from channel_envs import Trapdoor, Trapdoor3, Ising, Ising3, Bec_nc1, Bec_121, Bec_Dicode
 from replay_buffer import ReplayBuffer
 from utils import preprocess, save_models
-from model import ActorNetwork, CriticNetwork
+from model_ddqn import ActorNetwork, CriticNetwork, OrnsteinUhlenbeckActionNoise
 
 logger = logging.getLogger("logger")
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -74,14 +74,13 @@ def train(sess, env, env_eval, actor, critic, actor_eval, critic_eval, saver):
 
         if save:
             save_models(saver, sess, config.directory)
-        if i % 10 == 0:
+
+        if i % 25 == 0:
             critic.update_target_network()
             actor.update_target_network()
-
-        if i % 100 == 0:
-            print('long eval')
-            test_actor(env_eval, actor_eval, critic_eval, rho_list, rho_tar_list,
-                       eval_len=1000, name="final", plot=True, verbose=True)
+        # if i % 100 == 0:
+        #     test_actor(env_eval, actor_eval, critic_eval, rho_list, rho_tar_list,
+        #                eval_len=10000, name="final", plot=True, verbose=True)
 
     return rho_list, rho_tar_list
 
@@ -157,10 +156,25 @@ def run_episode(env, actor, critic, replay_buffer, rho_avg, pol_eval=None, episo
 
     for j in range(episode_len):
 
-        # Added exploration noise
-        a = actor.predict(np.reshape(s, (env.size, env.state_cardin-1)))
+        if np.random.rand() <= 1.0:
+            predict_target = critic.predict_target
+            actor_predict_target = actor.predict_target
+            actor_predict = actor.predict
+            actor_train_f = actor.train
+            train_f = critic.train
+            action_gradient = critic.action_gradients
+        else:
+            predict_target = critic.predict
+            actor_predict_target = actor.predict
+            actor_predict = actor.predict_target
+            actor_train_f = actor.train_target
+            train_f = critic.train_target
+            action_gradient = critic.action_gradients_target
 
-        n = np.random.exponential(scale=0.2, size=[config.env_size, env.input_cardin, env.state_cardin])
+        # Added exploration noise
+        a = actor_predict(np.reshape(s, (env.size, env.state_cardin-1)))
+
+        n = np.random.exponential(scale=1.0, size=[config.env_size, env.input_cardin, env.state_cardin])
         n /= np.tile(np.sum(n, axis=1, keepdims=True), [1, env.input_cardin, 1])
 
         a = np.reshape(a, [-1, env.input_cardin, env.state_cardin])
@@ -186,18 +200,18 @@ def run_episode(env, actor, critic, replay_buffer, rho_avg, pol_eval=None, episo
             logger.debug("Replay Buffer is filling up...")
             continue
 
+
+
         # Calculate the TD target
         if config.planning:
-            rrr, zzz_prime = env.step2(actor.predict(s2_batch[:, :, i]))
             target_q = 0
             for i in range(env.output_cardin):
-                target_q += np.reshape(p_y_batch[:, i], [-1, 1])*critic.predict_target(
-                    s2_batch[:, :, i], actor.predict(s2_batch[:, :, i]))
+                target_q += np.reshape(p_y_batch[:, i], [-1, 1])*predict_target(
+                    s2_batch[:, :, i], actor_predict(s2_batch[:, :, i]))
         else:
             s2_batch = env.sample_next_states(p_y_batch, s2_batch)
 
-            target_q = critic.predict_target(
-                s2_batch, actor.predict(s2_batch))
+            target_q = predict_target(s2_batch, actor_predict(s2_batch))
 
         target += np.mean(target_q)
 
@@ -205,15 +219,14 @@ def run_episode(env, actor, critic, replay_buffer, rho_avg, pol_eval=None, episo
         y_i = r_batch - rho_avg + critic.gamma * target_q
 
         # Update the critic given the targets
-        critic_grad_norm  = critic.train(s_batch, a_batch, np.reshape(y_i, (batch_size, 1)))
-        avg_critic_grad_norm += critic_grad_norm
-        # critic.update_target_network()
+        critic_grad_norm  = train_f(s_batch, a_batch, np.reshape(y_i, (batch_size, 1)))
+        # avg_critic_grad_norm += critic_grad_norm
 
         if pol_eval is None:
-            a_outs = actor.predict(s_batch)
-            grads = critic.action_gradients(s_batch, a_outs)
-            actor_grad_norm = actor.train(s_batch, grads[0])
-            avg_actor_grad_norm += actor_grad_norm
+            a_outs = actor_predict(s_batch)
+            grads = action_gradient(s_batch, a_outs)
+            actor_grad_norm = actor_train_f(s_batch, grads[0])
+            # avg_actor_grad_norm += actor_grad_norm
             # Update target networks
             # actor.update_target_network()
 
@@ -227,8 +240,8 @@ def run_episode(env, actor, critic, replay_buffer, rho_avg, pol_eval=None, episo
 
     print(target/episode_len)
     ep_ave_reward = ep_reward / (episode_len - transient)
-    avg_actor_grad_norm /= episode_len
-    avg_critic_grad_norm /= episode_len
+    # avg_actor_grad_norm /= episode_len
+    # avg_critic_grad_norm /= episode_len
 
     return ep_ave_reward
 

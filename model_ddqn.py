@@ -29,12 +29,14 @@ class ActorNetwork(object):
         with tf.name_scope("online"):
             self._create_actor_network()
 
-        if self.is_training:
-            self._create_optimizer()
+
 
         # Target Network
         with tf.name_scope("target"):
             self._create_target_network()
+
+        if self.is_training:
+            self._create_optimizer()
 
         self._create_summary_ops()
 
@@ -71,14 +73,11 @@ class ActorNetwork(object):
 
         # Op for periodically updating target network with online network
         # weights
-        # self.update_target_network_params = \
-        #     [self.target_network_params[i].assign(
-        #         tf.multiply(self.target_network_params[i], tf.div(self._global_step, tf.add(self._global_step, 1.))) +
-        #         tf.div(self.network_params[i], tf.add(self._global_step, 1.)))
-        #     for i in range(len(self.target_network_params))]
         self.update_target_network_params = \
-            [self.target_network_params[i].assign(self.network_params[i])
+            [self.target_network_params[i].assign(0.5*self.network_params[i]+0.5*self.target_network_params[i])
             for i in range(len(self.target_network_params))]
+        self.update_target_network_params.extend([self.network_params[i].assign(self.target_network_params[i])
+            for i in range(len(self.network_params))])
         # self.update_target_network_params = \
         #     [self.target_network_params[i].assign(
         #         tf.multiply(self.target_network_params[i], 1 - self.tau) +
@@ -92,10 +91,8 @@ class ActorNetwork(object):
         for i in range(self.layers):
             net = tflearn.fully_connected(net, self.hidden_size, name="fc-{}".format(i+1), bias=True, bias_init=bias_init)
             net = tflearn.layers.normalization.batch_normalization(net, name="bn-{}".format(i+1))
-            # net = tflearn.activations.relu(net)
             net = act(net, name="{}fc-{}".format(name, i+1) )
-            # if self.is_training:
-            #     net = tf.nn.dropout(net, 0.5, name="dropout-{}".format(i+1))
+
 
         bias_init = tflearn.initializations.uniform(shape=None, minval=-0.04, maxval=0.04,dtype=tf.float32)
         out = tflearn.fully_connected(
@@ -117,20 +114,23 @@ class ActorNetwork(object):
         # Combine the gradients here
         self.actor_gradients = tf.gradients(
             self.out, self.network_params, -self.action_gradient)
-        # self.actor_gradients = list(map(lambda x: tf.div(x, self.batch_size), self.actor_gradients))
 
-        # policy_entropy = -tf.constant(,uu,r gk vtjrubvfor g1,g2 in zip(self.actor_gradients,entropy_gradients)]
+        self.actor_gradients_target = tf.gradients(
+            self.target_out, self.target_network_params, -self.action_gradient)
 
 
         # Optimization Op
         if self.opt == "adam":
-            self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
+            self.optimizer1 = tf.train.AdamOptimizer(self.learning_rate)
+            self.optimizer2 = tf.train.AdamOptimizer(self.learning_rate)
         elif self.opt == "sgd":
-            self.optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
+            self.optimizer1 = tf.train.GradientDescentOptimizer(self.learning_rate)
+            self.optimizer2 = tf.train.GradientDescentOptimizer(self.learning_rate)
         else:
             raise ValueError("{} is not a valid optimizer".format(self.opt))
 
-        self.optimize = self.optimizer.apply_gradients(zip(self.actor_gradients, self.network_params))
+        self.optimize1 = self.optimizer1.apply_gradients(zip(self.actor_gradients, self.network_params))
+        self.optimize2 = self.optimizer2.apply_gradients(zip(self.actor_gradients_target, self.target_network_params))
 
         # learning rate decay
         self._lr_decay = tf.assign(self.learning_rate, self.learning_rate * self.learning_rate_decay)
@@ -157,12 +157,21 @@ class ActorNetwork(object):
 
     ######################## computational methods ########################
     def train(self, inputs, a_gradient):
-        _,i,s, g = self.sess.run([self.optimize, self._global_step, self.train_summary, self.grad_norm], feed_dict={
+        _,i,s, g = self.sess.run([self.optimize1, self._global_step, self.train_summary, self.grad_norm], feed_dict={
             self.inputs: inputs,
             self.action_gradient: a_gradient
         })
         self.summary_writer.add_summary(s, i)
         return g
+
+    def train_target(self, inputs, a_gradient):
+        _,i, = self.sess.run([self.optimize2, self._global_step], feed_dict={
+            self.target_inputs: inputs,
+            self.action_gradient: a_gradient
+        })
+        # self.summary_writer.add_summary(s, i)
+        return i
+
 
     def predict(self, inputs):
         return self.sess.run(self.out, feed_dict={
@@ -207,12 +216,12 @@ class CriticNetwork(object):
         # Critic network
         self._create_critic_network()
 
-        if self.is_training:
-            self._create_optimizer()
+
 
         # Target Network
         self._create_target_network()
-
+        if self.is_training:
+            self._create_optimizer()
         self._create_summary_ops()
 
 
@@ -253,14 +262,12 @@ class CriticNetwork(object):
         #         tf.multiply(self.target_network_params[i], tf.div(self._global_step, tf.add(self._global_step, 1.))) +
         #         tf.div(self.network_params[i], tf.add(self._global_step, 1.)))
         #     for i in range(len(self.target_network_params))]
+
         self.update_target_network_params = \
-            [self.target_network_params[i].assign(self.network_params[i])
+            [self.target_network_params[i].assign(0.5*self.network_params[i]+0.5*self.target_network_params[i])
             for i in range(len(self.target_network_params))]
-        # self.update_target_network_params = \
-        #     [self.target_network_params[i].assign(
-        #         tf.multiply(self.target_network_params[i], 1 - self.tau) +
-        #         tf.multiply(self.network_params[i], self.tau))
-        #     for i in range(len(self.target_network_params))]
+        self.update_target_network_params.extend([self.network_params[i].assign(self.target_network_params[i])
+            for i in range(len(self.network_params))])
 
     def _create_network(self,name):
         bias_init = tflearn.initializations.uniform(shape=None, minval=0.0, maxval=0.1,dtype=tf.float32)
@@ -297,7 +304,6 @@ class CriticNetwork(object):
         net = act(net, name="{}fc-out-comb".format(name))
 
         out = tflearn.fully_connected(net, 1, name="fc-last", bias=False)
-        out = out / tf.norm(out.W)
         return inputs, action, out
 
     def _create_optimizer(self):
@@ -309,22 +315,29 @@ class CriticNetwork(object):
         self.predicted_q_value = tf.placeholder(tf.float32, [None, 1])
 
         # Define loss
-        self.loss = tflearn.mean_square(self.predicted_q_value, self.out)
+        self.loss1 = tflearn.mean_square(self.predicted_q_value, self.out)
+        self.loss2 = tflearn.mean_square(self.predicted_q_value, self.target_out)
 
         # define optimization Op
         if self.opt == "adam":
-            self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
+            self.optimizer1 = tf.train.AdamOptimizer(self.learning_rate)
+            self.optimizer2 = tf.train.AdamOptimizer(self.learning_rate)
         elif self.opt == "sgd":
-            self.optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
+            self.optimizer1 = tf.train.GradientDescentOptimizer(self.learning_rate)
+            self.optimizer2 = tf.train.GradientDescentOptimizer(self.learning_rate)
         else:
             raise ValueError("{} is not a valid optimizer".format(self.opt))
 
-        grad_and_vars = self.optimizer.compute_gradients(self.loss, self.network_params)
+        grad_and_vars = self.optimizer1.compute_gradients(self.loss1, self.network_params)
+        self.optimize1 = self.optimizer1.apply_gradients(grad_and_vars)
+
+        grad_and_vars = self.optimizer2.compute_gradients(self.loss2, self.target_network_params)
+        self.optimize2 = self.optimizer2.apply_gradients(grad_and_vars)
 
 
-        self.optimize = self.optimizer.apply_gradients(grad_and_vars)
+        self.action_grads1 = tf.gradients(self.out , self.action)
+        self.action_grads2 = tf.gradients(self.target_out , self.target_action)
 
-        self.action_grads = tf.gradients(self.out , self.action)
 
         self._lr_decay = tf.assign(self.learning_rate, self.learning_rate * self.learning_rate_decay)
 
@@ -340,9 +353,17 @@ class CriticNetwork(object):
 
     ######################## computational methods ########################
     def train(self, inputs, action, predicted_q_value):
-        _, i, s, g = self.sess.run([self.optimize, self._global_step, self.train_summary, self.grad_norm], feed_dict={
+        _, i = self.sess.run([self.optimize1, self._global_step], feed_dict={
                             self.inputs: inputs,
                             self.action: action,
+                            self.predicted_q_value: predicted_q_value
+                        })
+        return None
+
+    def train_target(self, inputs, action, predicted_q_value):
+        _, i, s, g = self.sess.run([self.optimize2, self._global_step, self.train_summary, self.grad_norm], feed_dict={
+                            self.target_inputs: inputs,
+                            self.target_action: action,
                             self.predicted_q_value: predicted_q_value
                         })
         self.summary_writer.add_summary(s, i)
@@ -361,10 +382,12 @@ class CriticNetwork(object):
         })
 
     def action_gradients(self, inputs, actions):
-        return self.sess.run(self.action_grads, feed_dict={
-            self.inputs: inputs,
-            self.action: actions
-        })
+        return self.sess.run(self.action_grads1, feed_dict={self.inputs: inputs,
+                                                            self.action: actions})
+
+    def action_gradients_target(self, inputs, actions):
+        return self.sess.run(self.action_grads2, feed_dict={self.target_inputs: inputs,
+                                                            self.target_action: actions})
 
     def update_target_network(self):
         self.sess.run([self.update_target_network_params, self._global_inc])
