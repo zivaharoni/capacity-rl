@@ -1,6 +1,6 @@
 # Feedback Capacity of unifilar Finite State Channels using Reinforcement Learning
 
-This repository contains an implementation of feedback capacity solution using reinforcement learning as introduced in the [https://arxiv.org/pdf/2001.09685.pdf](paper)
+This repository contains an implementation of feedback capacity solution using reinforcement learning as introduced in the [paper](https://arxiv.org/pdf/2001.09685.pdf)
 
 ## Prerequisites
 
