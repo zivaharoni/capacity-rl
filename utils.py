@@ -7,13 +7,56 @@ import os
 import logging
 import time
 import shutil
-from configs import Config, ConfigLatest
+from configs import ConfigDDPG, ConfigDDPGPlanning
+import algorithm
 
 MAP_DICT = {"eval_tr":          "eval_transient",
             "eval_len":         "eval_episode_len",
             "test_len":         "test_episode_len"}
 
 logger = logging.getLogger("logger")
+
+
+def define_configs(args):
+    if args.config == "ddpg":
+        config = ConfigDDPG()
+        config.alg = algorithm.DDPG_Infinite
+    elif args.config == "ddpg_structure":
+        config = ConfigDDPG()
+        config.alg = algorithm.DDPG_StructuredReplay_Infinite
+    elif args.config == "ddpg_planning":
+        config = ConfigDDPGPlanning()
+        config.alg = algorithm.DDPG_Infinite_Planning
+    elif args.config == "ddpg_planning_structure":
+        config = ConfigDDPGPlanning()
+        config.alg = algorithm.DDPG_StructuredReplay_Infinite_Planning
+    else:
+        raise ValueError("Invalid choice of configuration")
+
+
+    config = read_flags(config, args)
+
+    seed_tmp = time.time()
+    config.seed = int((seed_tmp - int(seed_tmp))*1e6) if args.seed is None else args.seed
+
+
+    simulation_name = get_simulation_name(config)
+    config.directory = directory = "{}/results/{}/{}".format(os.path.dirname(sys.argv[0]), simulation_name, config.seed)
+
+    create_exp_dir(directory, scripts_to_save=['configs.py',
+                                               'channel_envs.py',
+                                               'algorithm.py',
+                                               'main.py',
+                                               'model.py',
+                                               'utils.py',
+                                               'result_buffer.py',
+                                               'replay_buffer.py'])
+
+    sess_config = tf.ConfigProto()
+
+    sess_config.gpu_options.allow_growth = True
+
+    return config, sess_config
 
 
 def read_flags(config, args):
@@ -31,19 +74,16 @@ def read_flags(config, args):
 
 
 def get_simulation_name(args):
-    waiver = ['seed', 'debug', 'verbose', 'model_path']
+    waiver = ['seed', 'debug', 'verbose', 'model_path', 'alg']
     name = []
     for arg in sorted(vars(args)):
         key = arg
         val = getattr(args, arg)
+        if key == name:
+            continue
         if val is not None and key not in waiver:
             name.append(key + "-" + str(val).replace(",","-").replace(" ", "").replace("[", "").replace("]", ""))
-    return "_".join(name)
-
-
-def print_config(config):
-    attrs = [attr for attr in dir(config) if not attr.startswith('__')]
-    logger.info('\n' + '\n'.join("%s: %s" % (item, getattr(config, item)) for item in attrs))
+    return "{}/{}".format(getattr(args,"name"), "_".join(name))
 
 
 def create_exp_dir(path, scripts_to_save=None):
@@ -61,40 +101,8 @@ def create_exp_dir(path, scripts_to_save=None):
             shutil.copyfile(os.path.join(os.path.dirname(sys.argv[0]),script), dst_file)
 
 
-def define_configs(args):
-    if args.config == "base":
-        config = Config()
-    elif args.config == "latest":
-        config = ConfigLatest()
-    else:
-        raise ValueError("Invalid choice of configuration")
-
-    config = read_flags(config, args)
-
-    seed_tmp = time.time()
-    config.seed = int((seed_tmp - int(seed_tmp))*1e6) if args.seed is None else args.seed
-
-
-    simulation_name = get_simulation_name(config)
-    config.directory = directory = "{}/results/{}/{}".format(os.path.dirname(sys.argv[0]), simulation_name, config.seed)
-
-    create_exp_dir(directory, scripts_to_save=['configs.py',
-                                               'channel_envs.py',
-                                               'main.py',
-                                               'model.py',
-                                               'optimizers.py',
-                                               'utils.py',
-                                               'replay_buffer.py'])
-
-    sess_config = tf.ConfigProto()
-
-    sess_config.gpu_options.allow_growth = True
-
-    return config, sess_config
-
-
 def define_logger(args, directory):
-    logFormatter = logging.Formatter("%(asctime)-10s | %(levelname)-5s | %(message)s")
+    logFormatter = logging.Formatter("%(message)s")
     logger = logging.getLogger("logger")
 
     if args.debug is None:
@@ -113,6 +121,25 @@ def define_logger(args, directory):
         logger.addHandler(consoleHandler)
 
     return logger
+
+
+def print_config(config):
+    attrs = [attr for attr in dir(config) if not attr.startswith('__')]
+    logger.info('\n' + '\n'.join("%s: %s" % (item, getattr(config, item)) for item in attrs))
+
+
+def preprocess(args):
+    ###################################### general configs ######################################
+
+    config, sess_config = define_configs(args)
+    logger = define_logger(args, config.directory)
+
+    logger.info("cmd line: python " + " ".join(sys.argv))
+    logger.debug("seed: %d" % config.seed)
+    logger.info("Simulation configurations" )
+    print_config(config)
+
+    return config, sess_config, logger
 
 
 def save_models(saver, sess, path):
@@ -147,18 +174,3 @@ def load_models(sess, path):
     #     critic = pickle.load(f)
     #
     # return actor, critic
-
-
-def preprocess(args):
-    ###################################### general configs ######################################
-
-    config, sess_config = define_configs(args)
-    logger = define_logger(args, config.directory)
-
-    logger.info("cmd line: python " + " ".join(sys.argv))
-    logger.debug("seed: %d" % config.seed)
-    logger.info("Simulation configurations" )
-    print_config(config)
-
-    return config, sess_config, logger
-
